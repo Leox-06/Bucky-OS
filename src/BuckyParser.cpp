@@ -1,16 +1,12 @@
 #include "BuckyParser.h"
 
 int BuckyParser::defaultDelay = 0;
-
-// =========================================================
-// KEY DICTIONARY (Universal Mapping)
-// =========================================================
+String BuckyParser::currentLayout = "US"; // Default layout token
 
 static uint8_t getKeycode(const String& key) {
     String keyName = key;
-    keyName.toUpperCase(); // Ensure case-insensitive matching
+    keyName.toUpperCase();
 
-    // System and Control Keys
     if (keyName == "ENTER" || keyName == "RETURN") return KEY_RETURN;
     if (keyName == "SPACE") return ' ';
     if (keyName == "TAB") return KEY_TAB;
@@ -19,9 +15,7 @@ static uint8_t getKeycode(const String& key) {
     if (keyName == "DELETE") return KEY_DELETE;
     if (keyName == "INSERT") return KEY_INSERT;
     if (keyName == "CAPSLOCK") return KEY_CAPS_LOCK;
-    // if (keyName == "PRINTSCREEN") return KEY_PRTSC;
 
-    // Directional Arrows and Navigation
     if (keyName == "UP" || keyName == "UPARROW") return KEY_UP_ARROW;
     if (keyName == "DOWN" || keyName == "DOWNARROW") return KEY_DOWN_ARROW;
     if (keyName == "LEFT" || keyName == "LEFTARROW") return KEY_LEFT_ARROW;
@@ -31,13 +25,11 @@ static uint8_t getKeycode(const String& key) {
     if (keyName == "HOME") return KEY_HOME;
     if (keyName == "END") return KEY_END;
 
-    // Modifiers (CTRL, ALT, SHIFT, GUI/WIN)
     if (keyName == "CTRL" || keyName == "CONTROL") return KEY_LEFT_CTRL;
     if (keyName == "SHIFT") return KEY_LEFT_SHIFT;
     if (keyName == "ALT") return KEY_LEFT_ALT;
     if (keyName == "GUI" || keyName == "WINDOWS" || keyName == "WIN") return KEY_LEFT_GUI;
 
-    // Function Keys (F1 - F12)
     if (keyName == "F1") return KEY_F1;
     if (keyName == "F2") return KEY_F2;
     if (keyName == "F3") return KEY_F3;
@@ -51,64 +43,101 @@ static uint8_t getKeycode(const String& key) {
     if (keyName == "F11") return KEY_F11;
     if (keyName == "F12") return KEY_F12;
 
-    // Handle single characters (e.g., "r" in "GUI r", or "c" in "CTRL c")
     if (keyName.length() == 1) {
-        // Return original character to preserve case sensitivity for single strokes
         return key.charAt(0); 
     }
-
-    return 0; // Unrecognized key
+    return 0;
 }
 
-// =========================================================
-// EXECUTION ENGINE (Case-Insensitive)
-// =========================================================
+void BuckyParser::typeChar(char c) {
+    if (currentLayout == "US") {
+        Keyboard.write(c);
+        return;
+    }
+
+    // --- ITALIAN LAYOUT PHYSICAL ROUTING MATRIX ---
+    bool handled = true;
+
+    // 1. ALT-GR KEYS (Chiocciola, Cancelletto, Quadre, Graffe, Euro)
+    if (c == '@') { Keyboard.press(KEY_RIGHT_ALT); Keyboard.press(';'); }      
+    else if (c == '#') { Keyboard.press(KEY_RIGHT_ALT); Keyboard.press('\''); } 
+    else if (c == '[') { Keyboard.press(KEY_RIGHT_ALT); Keyboard.press('['); }  
+    else if (c == ']') { Keyboard.press(KEY_RIGHT_ALT); Keyboard.press(']'); }  
+    else if (c == '{') { Keyboard.press(KEY_RIGHT_ALT); Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('['); } 
+    else if (c == '}') { Keyboard.press(KEY_RIGHT_ALT); Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press(']'); } 
+    else if (c == (char)0x80) { Keyboard.press(KEY_RIGHT_ALT); Keyboard.press('e'); }
+    
+    // 2. PHYSICALLY MOVED KEYS
+    else if (c == '\\') { Keyboard.press('`'); }
+    else if (c == '+') { Keyboard.press(']'); }                                 
+    else if (c == '*') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press(']'); } 
+    else if (c == '"') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('2'); } 
+    else if (c == '<') { Keyboard.press(236); }                                 // Scancode for ISO <
+    else if (c == '>') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press(236); } 
+    else if (c == '\'') { Keyboard.press('-'); }                                
+    else if (c == '-') { Keyboard.press('/'); }                                 
+    
+    // 3. BASE SHIFTED CHARACTERS
+    else if (c == '&') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('6'); } 
+    else if (c == '/') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('7'); } 
+    else if (c == '(') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('8'); } 
+    else if (c == ')') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('9'); } 
+    else if (c == '=') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('0'); } 
+    else if (c == '?') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('-'); } 
+    else if (c == '^') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('='); } 
+    else if (c == '_') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('/'); } 
+    else if (c == ':') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('.'); } 
+    else if (c == ';') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press(','); } 
+    else if (c == '|') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('`'); } 
+    
+    else { handled = false; }
+
+    if (handled) {
+        delay(15);
+        Keyboard.releaseAll(); // Release hardware modifiers
+    } else {
+        // Standard alphabetical or numerical character
+        Keyboard.write(c);
+    }
+}
 
 void BuckyParser::executeCommand(const String& rawCommand) {
     String command = rawCommand;
     command.trim();
     
-    // Ignore empty lines and comments
     if (command.length() == 0 || command.startsWith("//")) return;
 
-    // Extract the primary command word and force it to uppercase
     int firstSpace = command.indexOf(' ');
     String cmdWord = (firstSpace == -1) ? command : command.substring(0, firstSpace);
     cmdWord.toUpperCase();
 
-    // Ignore REM comments
     if (cmdWord == "REM") return;
 
-    // Safely extract the payload (everything after the first space)
     String payload = (firstSpace != -1) ? command.substring(firstSpace + 1) : "";
 
-    // 1. Handle DEFAULTDELAY
     if (cmdWord == "DEFAULTDELAY" || cmdWord == "DEFAULT_DELAY") {
         defaultDelay = payload.toInt();
         return;
     }
 
-    // 2. Special Commands: STRING
     if (cmdWord == "STRING") {
-        // Payload maintains original case sensitivity
+        payload.replace("€", "\x80"); // Converte i 3 byte UTF-8 dell'Euro in un singolo Token
         for (int i = 0; i < payload.length(); i++) {
-            Keyboard.write(payload.charAt(i));
+            BuckyParser::typeChar(payload.charAt(i));
             delay(15); 
         }
     }
-    // 3. Special Commands: STRINGLN
     else if (cmdWord == "STRINGLN") {
+        payload.replace("€", "\x80"); // Converte i 3 byte UTF-8 dell'Euro in un singolo Token
         for (int i = 0; i < payload.length(); i++) {
-            Keyboard.write(payload.charAt(i));
+            BuckyParser::typeChar(payload.charAt(i));
             delay(15);
         }
         Keyboard.write(KEY_RETURN);
     }
-    // 4. Special Commands: DELAY
     else if (cmdWord == "DELAY") {
         delay(payload.toInt());
     }
-    // 5. Special Commands: MOUSE CONTROLS
     else if (cmdWord == "MOUSE_MOVE") {
         int spaceIdx = payload.indexOf(' ');
         if (spaceIdx != -1) {
@@ -127,23 +156,20 @@ void BuckyParser::executeCommand(const String& rawCommand) {
     }
     else if (cmdWord == "MOUSE_SCROLL") {
         int scrollVal = payload.toInt();
-        // 3rd parameter handles the scroll wheel (positive = up, negative = down)
         Mouse.move(0, 0, scrollVal); 
     }
-    // 6. COMBINATION ENGINE (Any other input: e.g., "CTRL SHIFT ESC", "GUI r", "UP")
     else {
         int start = 0;
         int spaceIdx;
         bool pressedSomething = false;
         
-        // Split the command by spaces and press all valid keys simultaneously
         do {
             spaceIdx = command.indexOf(' ', start);
             String token = (spaceIdx == -1) ? command.substring(start) : command.substring(start, spaceIdx);
             token.trim();
             
             if (token.length() > 0) {
-                // Single tokens (e.g. 'c') pass directly; getKeycode handles uppercase conversion internally
+                // Modifiers and macro combinations are layout independent at hardware scancode level
                 uint8_t keycode = (token.length() == 1) ? token.charAt(0) : getKeycode(token);
                 
                 if (keycode != 0) {
@@ -154,23 +180,17 @@ void BuckyParser::executeCommand(const String& rawCommand) {
             start = spaceIdx + 1;
         } while (spaceIdx != -1);
         
-        // Release keys after a short delay to ensure OS registration
         if (pressedSomething) {
             delay(50);
             Keyboard.releaseAll();
         } else {
-            // Triggered if the user inputs an unknown syntax/command
             printlnDual(String(C_RED) + "[-] Unknown Syntax: " + command + String(C_RESET));
         }
     }
     
-    // Apply global delay if configured
     if (defaultDelay > 0) delay(defaultDelay);
 }
 
-// =========================================================
-// SCRIPT RUNNER
-// =========================================================
 void BuckyParser::runScript(const String& filename) {
     String safeFilename = filename;
     if (!safeFilename.startsWith("/")) safeFilename = "/" + safeFilename;
@@ -183,7 +203,7 @@ void BuckyParser::runScript(const String& filename) {
     File f = LittleFS.open(safeFilename, "r");
     printlnDual(String(C_YELLOW) + "[*] Executing script: " + safeFilename + String(C_RESET));
     
-    defaultDelay = 0; // Reset delay for safety on new script execution
+    defaultDelay = 0; 
     
     while (f.available()) {
         String line = f.readStringUntil('\n');
@@ -195,7 +215,6 @@ void BuckyParser::runScript(const String& filename) {
     }
     f.close();
     
-    // Final safety release to prevent stuck keys after execution
     Keyboard.releaseAll(); 
     printlnDual(String(C_GREEN) + "[+] Execution completed." + String(C_RESET));
 }
