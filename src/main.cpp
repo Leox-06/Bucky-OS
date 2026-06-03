@@ -20,7 +20,7 @@
 // =========================================================
 // NETWORK & BLE GLOBALS
 // =========================================================
-const char* ssid = "DIRECT-Bucky";
+const char* ssid = "bucky";
 const char* password = "BuckyAdmin2026!"; // WPA2 Password for security
 WiFiServer telnetServer(23);
 WiFiClient client;
@@ -625,7 +625,7 @@ void setup() {
 
     // Initialize Wi-Fi AP securely
     WiFi.mode(WIFI_AP);
-    WiFi.softAP(ssid, password); 
+    WiFi.softAP(ssid, password, 1, 1); 
     
     // Start Telnet Service
     telnetServer.begin();
