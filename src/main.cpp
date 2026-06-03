@@ -9,43 +9,49 @@
 #include <esp_system.h>
 #include <esp_mac.h>
 
-#define BTN_PIN 0
+#include "BuckyParser.h" // Includes Parser logic and ANSI Color definitions (C_RED, C_GREEN, etc.)
+
+// =========================================================
+// HARDWARE & PIN DEFINITIONS
+// =========================================================
+#define BTN_PIN 0       // Default ESP32 BOOT button
 #define BTN_LEVEL LOW
 
+// =========================================================
+// NETWORK & BLE GLOBALS
+// =========================================================
 const char* ssid = "DIRECT-Bucky";
+const char* password = "BuckyAdmin2026!"; // WPA2 Password for security
 WiFiServer telnetServer(23);
 WiFiClient client;
 BLEScan* pBLEScan;
 
-String scriptBuffer = "";
+// =========================================================
+// FILE SYSTEM GLOBALS
+// =========================================================
+const char* ACTIVE_CONFIG_FILE = "/active_config";
+const char* TARGET_CONFIG_FILE = "/target_profile";
+const char* NAMES_CONFIG_FILE  = "/names_config";
+
+File editorFile;
 bool readingScript = false;
 String scriptTargetName = "";
 
-const char* ACTIVE_CONFIG_FILE = "/active_config.txt";
-const char* TARGET_CONFIG_FILE = "/target_profile.txt";
-const char* NAMES_CONFIG_FILE  = "/names_config.txt";
-
+// =========================================================
+// STATE & CLI GLOBALS
+// =========================================================
 String serialCommandBuffer = "";
 String telnetCommandBuffer = "";
 
 int currentProfile = 1;
 String profileNames[3] = {"Bucky_1", "Bucky_2", "Bucky_3"};
 
-// ---------------------------------------------------------
-// PROFESSIONAL ANSI COLORS
-// ---------------------------------------------------------
-#define C_RED     "\033[91m"
-#define C_GREEN   "\033[92m"
-#define C_YELLOW  "\033[93m"
-#define C_BLUE    "\033[94m"
-#define C_CYAN    "\033[96m"
-#define C_GRAY    "\033[90m"
-#define C_RESET   "\033[0m"
-#define C_CLEAR   "\033[2J\033[H" // Clears the screen and moves the cursor to the top
+bool liveMode = false;
+bool liveMouseMode = false;
 
-// ---------------------------------------------------------
-// SYNCHRONIZED PRINT AND COLOR FILTER
-// ---------------------------------------------------------
+// =========================================================
+// HELPER: ANSI FILTER & DUAL PRINTING
+// =========================================================
 
 String stripANSI(String input) {
     String output = "";
@@ -53,41 +59,41 @@ String stripANSI(String input) {
     for (int i = 0; i < input.length(); i++) {
         char c = input.charAt(i);
         if (c == '\033') { 
-            inANSI = true; // Start of color code
+            inANSI = true; 
         } else if (inANSI) {
-            // ANSI codes always end with a letter (e.g., 'm' for colors, 'J' or 'H' to clear the screen)
+            // ANSI codes always end with a letter
             if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
-                inANSI = false; // End of code, resume reading text
+                inANSI = false; 
             }
         } else {
-            output += c; // Adds only normal characters
+            output += c; 
         }
     }
     return output;
 }
 
 void printDual(const String& msg) {
-    Serial.print(stripANSI(msg)); // Prints clean text to USB
+    Serial.print(stripANSI(msg)); 
     if (client && client.connected()) {
-        client.print(msg);        // Sends colored text via Wi-Fi
+        client.print(msg); 
     }
 }
 
 void printlnDual(const String& msg) {
-    Serial.println(stripANSI(msg)); // Prints clean text to USB
+    Serial.println(stripANSI(msg)); 
     if (client && client.connected()) {
-        client.println(msg);        // Sends colored text via Wi-Fi
+        client.println(msg); 
     }
 }
 
 void printPrompt() {
-    // The String("\r") forces the cursor to jump to the left margin before writing
     printDual(String("\r") + String(C_CYAN) + "root@bucky:~# " + String(C_RESET));
 }
 
-// ---------------------------------------------------------
+// =========================================================
 // CONFIGURATION MANAGEMENT
-// ---------------------------------------------------------
+// =========================================================
+
 String getActiveScript() {
     if (!LittleFS.exists(ACTIVE_CONFIG_FILE)) return "";
     File f = LittleFS.open(ACTIVE_CONFIG_FILE, "r");
@@ -108,12 +114,13 @@ bool setActiveScript(String filename) {
     return true;
 }
 
-// ---------------------------------------------------------
-// FILE SYSTEM TREE WITH COLORS
-// ---------------------------------------------------------
 bool isSystemFile(String name) {
-    return (name == "active_config.txt" || name == "target_profile.txt" || name == "names_config.txt");
+    return (name == "active_config" || name == "target_profile" || name == "names_config");
 }
+
+// =========================================================
+// UI & DASHBOARD RENDERING
+// =========================================================
 
 void printTree(String path, String prefix) {
     File dir = LittleFS.open(path);
@@ -176,44 +183,29 @@ String getStorageProgressBar() {
     
     if (total == 0) return "[Storage Error]";
 
-    // Calculate occupancy percentage
     int percentage = (used * 100) / total;
-    
-    // Configure graphical width of the bar (10 total blocks)
     int barWidth = 10;
-    int filledBlocks = percentage / 10; // Each block represents 10%
+    int filledBlocks = percentage / 10; 
 
     String bar = "[";
     for (int i = 0; i < barWidth; i++) {
-        if (i < filledBlocks) {
-            bar += "█"; // Filled block
-        } else {
-            bar += "░"; // Empty block
-        }
+        bar += (i < filledBlocks) ? "█" : "░";
     }
-    bar += "] ";
-
-    // Show percentage and space in KB (Kilobytes)
-    bar += String(percentage) + "% (" + String(used / 1024) + "KB / " + String(total / 1024) + "KB)";
+    bar += "] " + String(percentage) + "% (" + String(used / 1024) + "KB / " + String(total / 1024) + "KB)";
     return bar;
 }
 
-// ---------------------------------------------------------
-// FIXED DASHBOARD ON TOP
-// ---------------------------------------------------------
 void printDashboard() {
-    printDual(C_CLEAR); // Clears everything and goes to top
+    printDual(C_CLEAR); 
     
-    // Duck Drawing and Info (Updated with Phantom OS and Storage Bar)
     printlnDual(String(C_YELLOW) + "      ,~~.");
     printlnDual("     (  9 )-_,");
     printlnDual("(\\___ )=='-'");
     printlnDual(" \\ .   ) )" + String(C_CYAN) + "    Bucky OS - Payload Injector");
     printlnDual(String(C_YELLOW) + "  \\ `-' /" + String(C_RESET) + "     ID: " + String(C_GREEN) + "[" + String(currentProfile) + "] " + profileNames[currentProfile-1] + String(C_RESET));
     printlnDual(String(C_YELLOW) + "   `~j-'" + String(C_RESET) + "      BLE Target : " + String(Keyboard.isConnected() ? String(C_GREEN)+"[CONNECTED]" : String(C_RED)+"[WAITING]"));
-    printlnDual(String(C_YELLOW) + "    \"=:" + String(C_RESET) + "      Storage    : " + String(C_CYAN) + getStorageProgressBar() + String(C_RESET)); // <--- INTEGRATED HERE
+    printlnDual(String(C_YELLOW) + "    \"=:" + String(C_RESET) + "      Storage    : " + String(C_CYAN) + getStorageProgressBar() + String(C_RESET)); 
     
-    // Tree Drawing
     printlnDual(String(C_CYAN) + "[ ROOT FILE SYSTEM ]" + C_RESET);
     printlnDual(String(C_BLUE) + "  /" + C_RESET);
     
@@ -234,6 +226,10 @@ void printDashboard() {
     printlnDual(String(C_GRAY) + "------------------------------------------------" + C_RESET);
 }
 
+// =========================================================
+// COMMAND PROCESSING LOGIC
+// =========================================================
+
 String getParam(String cmd, int offset) {
     if (cmd.length() <= offset) return "";
     String p = cmd.substring(offset);
@@ -241,143 +237,60 @@ String getParam(String cmd, int offset) {
     return p;
 }
 
-// ---------------------------------------------------------
-// DUCKY SCRIPT AND MOUSE ENGINE (Maximum Accuracy)
-// ---------------------------------------------------------
-void executeSingleCommand(String command) {
-    command.trim();
-    if (command.length() == 0 || command.startsWith("//")) return;
-
-    if (command == "ENTER") { 
-        Keyboard.write(KEY_RETURN); 
-    } 
-    else if (command == "SPACE") { 
-        Keyboard.write(' '); 
-    } 
-    else if (command.startsWith("STRING ")) { 
-        String text = command.substring(7);
-        // Writes letter by letter with a micro-delay to prevent stuck keys
-        for (int i = 0; i < text.length(); i++) {
-            Keyboard.write(text.charAt(i));
-            delay(15); // <-- The antibug magic: 15ms between keys
-        }
-    } 
-    else if (command.startsWith("DELAY ")) { 
-        delay(command.substring(6).toInt()); 
-    } 
-    else if (command.startsWith("WIN ") || command.startsWith("META ")) {
-        Keyboard.press(KEY_LEFT_GUI); 
-        Keyboard.press(command.charAt(4)); 
-        delay(100); 
-        Keyboard.releaseAll();
-    } 
-    else if (command.startsWith("CTRL ")) {
-        Keyboard.press(KEY_LEFT_CTRL); 
-        Keyboard.press(command.charAt(5)); 
-        delay(100); 
-        Keyboard.releaseAll();
-    } 
-    else if (command.startsWith("ALT ")) {
-        Keyboard.press(KEY_LEFT_ALT); 
-        Keyboard.press(command.charAt(4)); 
-        delay(100); 
-        Keyboard.releaseAll();
-    } 
-    else if (command.startsWith("MOUSE_MOVE ")) {
-        String coords = command.substring(11);
-        int spaceIdx = coords.indexOf(' ');
-        if (spaceIdx != -1) {
-            int dx = coords.substring(0, spaceIdx).toInt();
-            int dy = coords.substring(spaceIdx + 1).toInt();
-            Mouse.move(dx, dy, 0);
-        }
-    } 
-    else if (command.startsWith("MOUSE_CLICK")) {
-        String button = command.substring(11);
-        button.trim();
-        
-        if (button == "RIGHT") {
-            Mouse.click(MOUSE_RIGHT);
-        } else if (button == "MIDDLE") {
-            Mouse.click(MOUSE_MIDDLE);
-        } else {
-            Mouse.click(MOUSE_LEFT); // If "LEFT" or empty, performs standard left click
-        }
-    }
-}
-
-void runScriptFile(String filename) {
-    if (!filename.startsWith("/")) filename = "/" + filename;
-    if (!LittleFS.exists(filename)) {
-        printlnDual(String(C_RED) + "[-] Error: File not found -> " + filename + C_RESET);
-        return;
-    }
-    File f = LittleFS.open(filename, "r");
-    printlnDual(String(C_YELLOW) + "[*] Executing script: " + filename + C_RESET);
-    
-    while (f.available()) {
-        String line = f.readStringUntil('\n');
-        line.trim();
-        if (line.length() > 0) {
-            printlnDual(String(C_GRAY) + "> " + line + C_RESET);
-            executeSingleCommand(line);
-            delay(50); // <-- Line pause increased to 50ms to stabilize the PC buffer
-        }
-    }
-    f.close();
-    Keyboard.releaseAll(); // Final safety catch to release all keys
-    printlnDual(String(C_GREEN) + "[+] Execution completed." + C_RESET);
-}
-
-// ---------------------------------------------------------
-// CLI COMMAND PROCESSOR
-// ---------------------------------------------------------
 void processCommand(String command) {
     command.trim();
+
+    // --- 1. TEXT EDITOR INTERCEPTOR (Direct Disk Streaming) ---
+    if (readingScript) {
+        // Create a temporary uppercase string to ensure case-insensitive exit check
+        String exitCheck = command;
+        exitCheck.toUpperCase();
+
+        if (exitCheck == "END") {
+            readingScript = false;
+            editorFile.close();
+            printDashboard();
+            printlnDual(String(C_GREEN) + "[+] File " + scriptTargetName + " saved successfully!" + C_RESET);
+        } else {
+            // Write the original command line to flash memory (preserving original casing)
+            if (editorFile) {
+                editorFile.println(command);
+            }
+        }
+        if (!readingScript) printPrompt();
+        return;
+    }
+
+    // --- 2. EMPTY COMMAND FALLBACK ---
     if (command.length() == 0) { 
         printDashboard(); 
         printPrompt(); 
         return; 
     }
 
-    // EDITOR MANAGEMENT
-    if (readingScript) {
-        if (command == "END") {
-            readingScript = false;
-            File f = LittleFS.open(scriptTargetName, "w");
-            if (f) {
-                f.print(scriptBuffer);
-                f.close();
-                printDashboard();
-                printlnDual(String(C_GREEN) + "[+] File " + scriptTargetName + " saved successfully!" + C_RESET);
-            } else {
-                printDashboard();
-                printlnDual(String(C_RED) + "[-] FS Error: Could not write file." + C_RESET);
-            }
-        } else {
-            scriptBuffer += command + "\n";
-        }
-        if (!readingScript) printPrompt();
-        return;
-    }
-
-    // ACTIONS: Clean and redraw the dashboard BEFORE printing output
+    // Action execution: Refresh UI before printing command output
     printDashboard();
     printlnDual(String(C_GRAY) + ">>> " + command + C_RESET + "\n");
 
+    // --- 3. COMMAND ROUTING ---
     if (command == "help") {
         printlnDual(String(C_CYAN) + "[ TARGET & BLUETOOTH ]" + C_RESET);
-        printlnDual("  target <1-3>  : Switch BT identity to attack a different PC");
+        printlnDual(String(C_GRAY) + "  target <1-3>  : Switch BT identity to attack a different PC");
         printlnDual("  rename <name> : Change Bluetooth name of current identity");
         printlnDual("  scan          : Scan for nearby BLE targets (5s)");
-        printlnDual("  run <file>    : Run a script immediately via BLE\n");
+        printlnDual("  run <files>   : Run one or multiple scripts chained via BLE");
+        printlnDual(String("  live          : Enter Live Control Mode (Remote Keyboard/Mouse)\n") + C_RESET);
+        
         printlnDual(String(C_CYAN) + "[ FOLDERS & FILES ]" + C_RESET);
-        printlnDual("  mkdir <dir>   : Create a new folder");
+        printlnDual(String(C_GRAY) + "  mkdir <dir>   : Create a new folder");
         printlnDual("  rmdir <dir>   : Delete an empty folder");
         printlnDual("  cat <file>    : Read script content");
         printlnDual("  write <file>  : Create/overwrite a script (Opens editor)");
         printlnDual("  rm <file>     : Delete a script");
-        printlnDual("  set <file>    : Arm a script for the physical BOOT button");
+        printlnDual(String("  set <file>    : Arm a script for the physical BOOT button\n") + C_RESET);
+
+        printlnDual(String(C_CYAN) + "[ SYSTEM ]" + C_RESET);
+        printlnDual(String(C_GRAY) + "  reboot        : Restart the Bucky OS device" + C_RESET);
     } 
     else if (command.startsWith("target ")) {
         int t = getParam(command, 7).toInt();
@@ -412,10 +325,29 @@ void processCommand(String command) {
             printlnDual(String(C_RED) + "[-] Invalid name." + C_RESET);
         }
     }
+    else if (command == "live") {
+        if (!Keyboard.isConnected()) {
+            printlnDual(String(C_RED) + "[-] Error: BLE target not connected." + C_RESET);
+            return;
+        }
+        liveMode = true;
+        liveMouseMode = false;
+        printlnDual(String(C_CLEAR));
+        printlnDual(String(C_YELLOW) + ">>> 🔴 LIVE CONTROL MODE ACTIVE <<<" + C_RESET);
+        printlnDual(String(C_CYAN) + "[ KEYBOARD MODE ]" + C_RESET);
+        printlnDual(String(C_GRAY) + "  Type normally. Inputs are sent instantly." + C_RESET);
+        printlnDual(String(C_YELLOW) + "  Press '#' to toggle MOUSE mode." + C_RESET);
+        printlnDual(String(C_RED) + "  Press '~' to EXIT Live Mode." + C_RESET);
+    }
+    else if (command == "reboot" || command == "restart") {
+        printlnDual(String(C_YELLOW) + "[*] Rebooting Bucky OS..." + C_RESET);
+        printlnDual(String(C_GRAY) + "Connection will be lost. Reconnect in a few seconds." + C_RESET);
+        delay(1000); 
+        ESP.restart();
+    }
     else if (command.startsWith("set ")) {
         String fn = getParam(command, 4);
         if (setActiveScript(fn)) {
-            // Redraw dashboard to update the arrow (ACTIVE) immediately
             printDashboard();
             printlnDual(String(C_GREEN) + "[+] Armed for physical button: " + fn + C_RESET);
         } else {
@@ -428,8 +360,7 @@ void processCommand(String command) {
         if (LittleFS.mkdir(dir)) {
             printDashboard();
             printlnDual(String(C_GREEN) + "[+] Folder created: " + dir + C_RESET);
-        }
-        else printlnDual(String(C_RED) + "[-] Failed to create folder." + C_RESET);
+        } else printlnDual(String(C_RED) + "[-] Failed to create folder." + C_RESET);
     }
     else if (command.startsWith("rmdir ")) {
         String dir = getParam(command, 6);
@@ -437,8 +368,7 @@ void processCommand(String command) {
         if (LittleFS.rmdir(dir)) {
             printDashboard();
             printlnDual(String(C_GREEN) + "[+] Folder deleted: " + dir + C_RESET);
-        }
-        else printlnDual(String(C_RED) + "[-] Failed to delete folder (Must be empty)." + C_RESET);
+        } else printlnDual(String(C_RED) + "[-] Failed to delete folder (Must be empty)." + C_RESET);
     }
     else if (command.startsWith("cat ")) {
         String fn = getParam(command, 4);
@@ -459,13 +389,31 @@ void processCommand(String command) {
         scriptTargetName = getParam(command, 6);
         if (scriptTargetName.length() > 0) {
             if (!scriptTargetName.startsWith("/")) scriptTargetName = "/" + scriptTargetName;
+            
+            editorFile = LittleFS.open(scriptTargetName, "w");
+            if (!editorFile) {
+                printlnDual(String(C_RED) + "[-] FS Error: Cannot create file." + C_RESET);
+                return;
+            }
+
             readingScript = true;
-            scriptBuffer = "";
             printlnDual(String(C_CYAN) + "=== 📝 EDITOR: " + scriptTargetName + " ===" + C_RESET);
-            printlnDual(String(C_GRAY) + "Commands : STRING <txt>, ENTER, SPACE, DELAY <ms>");
-            printlnDual("           WIN/CTRL/ALT <key>, MOUSE_MOVE <x> <y>");
-            printlnDual("           MOUSE_CLICK [RIGHT/LEFT/MIDDLE]" + String(C_RESET));
-            printlnDual(String(C_YELLOW) + "-> Type script. Type 'END' to SAVE and exit." + C_RESET);
+            printlnDual(String(C_YELLOW) + "[ TEXT & TYPING ]" + C_RESET);
+            printlnDual(String(C_GRAY) + "  STRING <txt>   : Types text (e.g., STRING Hello World)");
+            printlnDual("  STRINGLN <txt> : Types text and presses Enter");
+            
+            printlnDual(String(C_YELLOW) + "[ SPECIAL KEYS & COMBOS ]" + C_RESET);
+            printlnDual(String(C_GRAY) + "  ENTER, SPACE, TAB, ESC, BACKSPACE, UP, DOWN, LEFT, RIGHT");
+            printlnDual("  CTRL, ALT, SHIFT, GUI (e.g., CTRL SHIFT ESC, GUI r)");
+            
+            printlnDual(String(C_YELLOW) + "[ DELAYS & MOUSE ]" + C_RESET);
+            printlnDual(String(C_GRAY) + "  DELAY <ms>       : Single pause (e.g., DELAY 1000)");
+            printlnDual("  DEFAULTDELAY <ms>: Auto-pause between every line");
+            printlnDual(String("  MOUSE_MOVE <x> <y> / MOUSE_CLICK [LEFT/RIGHT/MIDDLE]") + C_RESET);
+            
+            printlnDual(String(C_CYAN) + "------------------------------------------------" + C_RESET);
+            printlnDual(String(C_GREEN) + "-> Type manually or paste your script." + C_RESET);
+            printlnDual(String(C_GREEN) + "-> Type 'END' on a new line to SAVE and exit." + C_RESET);
         } else {
             printlnDual(String(C_RED) + "[-] Usage: write <filename>" + C_RESET);
         }
@@ -483,11 +431,38 @@ void processCommand(String command) {
     } 
     else if (command.startsWith("run ")) {
         if (Keyboard.isConnected()) {
-            runScriptFile(getParam(command, 4));
+            String args = command.substring(4);
+            args.trim();
+            
+            int start = 0;
+            int spaceIdx;
+            int scriptCount = 0;
+            
+            // Payload Chaining Logic
+            do {
+                spaceIdx = args.indexOf(' ', start);
+                String file = (spaceIdx == -1) ? args.substring(start) : args.substring(start, spaceIdx);
+                file.trim();
+                
+                if (file.length() > 0) {
+                    scriptCount++;
+                    if (scriptCount > 1) {
+                        printlnDual(String(C_CYAN) + "--- Chaining Next Script (" + String(scriptCount) + ") ---" + C_RESET);
+                        delay(500); // Target PC buffer recovery time
+                    }
+                    BuckyParser::runScript(file); // Executed via BuckyParser library
+                }
+                start = spaceIdx + 1;
+            } while (spaceIdx != -1);
+            
+            if (scriptCount > 1) {
+                printlnDual(String(C_GREEN) + "[+] Chain completed: " + String(scriptCount) + " scripts executed." + C_RESET);
+            }
+            
         } else {
             printlnDual(String(C_RED) + "[-] Error: BLE target not connected." + C_RESET);
         }
-    } 
+    }
     else if (command == "scan") {
         printlnDual(String(C_YELLOW) + "[*] Scanning for BLE Devices (5s)..." + C_RESET);
         BLEScanResults foundDevices = pBLEScan->start(5, false);
@@ -501,12 +476,13 @@ void processCommand(String command) {
         pBLEScan->clearResults();
     } 
     else {
+        // Direct single/chained command execution (e.g. typing "GUI r; DELAY 500; STRING cmd")
         if (Keyboard.isConnected()) {
             int start = 0;
             int end = command.indexOf(';');
             while (start < command.length()) {
                 String sub = (end == -1) ? command.substring(start) : command.substring(start, end);
-                executeSingleCommand(sub);
+                BuckyParser::executeCommand(sub); 
                 start = (end == -1) ? command.length() : end + 1;
                 end = command.indexOf(';', start);
             }
@@ -519,9 +495,93 @@ void processCommand(String command) {
     if (!readingScript) printPrompt();
 }
 
-// ---------------------------------------------------------
-// SETUP & LOOP
-// ---------------------------------------------------------
+// =========================================================
+// HELPER: LIVE MODE INTERCEPTOR (DRY)
+// =========================================================
+
+bool handleLiveModeInput(char c) {
+    if (!liveMode) return false;
+
+    // State memory to intercept 3-byte ANSI arrow key sequences (e.g., ESC [ A)
+    static int ansiState = 0;
+
+    // --- 1. ANSI ESCAPE SEQUENCE INTERCEPTOR (For Arrow Keys) ---
+    if (ansiState == 1) {
+        if (c == '[') {
+            ansiState = 2; // Second byte confirmed, waiting for direction
+            return true;
+        } else {
+            ansiState = 0; // False alarm, it was just a raw ESC key press
+            if (!liveMouseMode) Keyboard.write(KEY_ESC);
+            // Continue processing 'c' normally
+        }
+    }
+    else if (ansiState == 2) {
+        ansiState = 0; // Reset state
+        int step = 15; // Movement step in pixels
+        
+        if (liveMouseMode) {
+            // Mouse Mode: Arrows move the cursor
+            if (c == 'A') Mouse.move(0, -step + 1, 0);      // Up Arrow
+            else if (c == 'B') Mouse.move(0, step, 0);  // Down Arrow
+            else if (c == 'C') Mouse.move(step, 0, 0);  // Right Arrow
+            else if (c == 'D') Mouse.move(-step + 1, 0, 0); // Left Arrow
+        } else {
+            // Keyboard Mode: Send arrow keycodes to target PC
+            if (c == 'A') Keyboard.write(KEY_UP_ARROW);
+            else if (c == 'B') Keyboard.write(KEY_DOWN_ARROW);
+            else if (c == 'C') Keyboard.write(KEY_RIGHT_ARROW);
+            else if (c == 'D') Keyboard.write(KEY_LEFT_ARROW);
+        }
+        return true; 
+    }
+
+    if (c == 27) { // 27 is the ASCII code for ESC (\033), start of sequence
+        ansiState = 1;
+        return true;
+    }
+
+    // --- 2. STANDARD LIVE MODE CONTROLS ---
+    if (c == '~') { // EXIT KEY
+        liveMode = false;
+        printDashboard();
+        printPrompt();
+    } 
+    else if (c == '#') { // TOGGLE MOUSE/KEYBOARD KEY
+        liveMouseMode = !liveMouseMode;
+        if (liveMouseMode) {
+            printlnDual(String(C_CYAN) + "\r\n[ MOUSE MODE ] WASD/Arrows=Move, Q=LClick, E=RClick, C=Mid, R/F=Scroll" + C_RESET);
+        } else {
+            printlnDual(String(C_CYAN) + "\r\n[ KEYBOARD MODE ]" + C_RESET);
+        }
+    } 
+    else if (liveMouseMode) {
+        // --- MOUSE CONTROLS (WASD & Actions) ---
+        int step = 15; 
+        if (c == 'w' || c == 'W') Mouse.move(0, -step, 0);
+        else if (c == 's' || c == 'S') Mouse.move(0, step, 0);
+        else if (c == 'a' || c == 'A') Mouse.move(-step, 0, 0);
+        else if (c == 'd' || c == 'D') Mouse.move(step, 0, 0);
+        else if (c == 'q' || c == 'Q') Mouse.click(MOUSE_LEFT);
+        else if (c == 'e' || c == 'E') Mouse.click(MOUSE_RIGHT);
+        else if (c == 'c' || c == 'C') Mouse.click(MOUSE_MIDDLE);
+        else if (c == 'r' || c == 'R') Mouse.move(0, 0, 1);  // Scroll UP
+        else if (c == 'f' || c == 'F') Mouse.move(0, 0, -1); // Scroll DOWN
+    } 
+    else {
+        // --- KEYBOARD CONTROLS ---
+        if (c == '\r') { /* ignore raw carriage returns */ }
+        else if (c == '\n') Keyboard.write(KEY_RETURN);
+        else if (c == '\b' || c == 127) Keyboard.write(KEY_BACKSPACE);
+        else Keyboard.write(c);
+    }
+    return true; 
+}
+
+// =========================================================
+// SETUP & MAIN LOOP
+// =========================================================
+
 void setup() {
     Serial.begin(115200);
     delay(1000); 
@@ -529,6 +589,7 @@ void setup() {
     LittleFS.begin(true);
     pinMode(BTN_PIN, INPUT_PULLUP);
 
+    // Read stored identities
     if (LittleFS.exists(NAMES_CONFIG_FILE)) {
         File f = LittleFS.open(NAMES_CONFIG_FILE, "r");
         for (int i = 0; i < 3; i++) {
@@ -548,11 +609,13 @@ void setup() {
     }
     if (currentProfile < 1 || currentProfile > 3) currentProfile = 1;
     
+    // MAC Address Spoofing to allow quick reconnection to different profiles
     uint8_t custom_mac[6];
     esp_read_mac(custom_mac, ESP_MAC_WIFI_STA); 
     custom_mac[5] += currentProfile; 
     esp_base_mac_addr_set(custom_mac);
 
+    // Initialize BLE Server Stack
     BLEDevice::init(profileNames[currentProfile - 1].c_str());
     pBLEScan = BLEDevice::getScan();
     pBLEScan->setActiveScan(true);
@@ -560,9 +623,11 @@ void setup() {
     Keyboard.begin();
     Mouse.begin();
 
+    // Initialize Wi-Fi AP securely
     WiFi.mode(WIFI_AP);
-    WiFi.softAP(ssid);
+    WiFi.softAP(ssid, password); 
     
+    // Start Telnet Service
     telnetServer.begin();
     telnetServer.setNoDelay(true);
     
@@ -580,33 +645,28 @@ void loop() {
             printDashboard(); 
             printPrompt();
         } else {
-            telnetServer.available().stop(); 
+            telnetServer.available().stop(); // Reject secondary connections
         }
     }
 
-    // 2. TELNET MANAGEMENT (Wi-Fi - Termius)
+    // 2. TELNET MANAGEMENT (Wi-Fi)
     if (client && client.connected()) {
         while (client.available()) {
             char c = client.read();
             
+            // Route character to Live Mode if active. Skip normal CLI parsing if consumed.
+            if (handleLiveModeInput(c)) continue; 
+            
             if (c == '\r') continue; 
 
-            // If we press ENTER (\n)
+            // ENTER KEY
             if (c == '\n') {
-                if (telnetCommandBuffer.length() > 0) {
-                    processCommand(telnetCommandBuffer);
-                    telnetCommandBuffer = "";
-                    // FIX: If we are in the editor, force cursor to carriage return to the left margin
-                    if (readingScript) {
-                        printDual("\r");
-                    }
-                } else {
-                    // Update the screen ONLY on a true empty enter
-                    printDashboard();
-                    printPrompt();
-                }
-            } 
-            // If we press DELETE/BACKSPACE (Backspace = \b or 127)
+                processCommand(telnetCommandBuffer);
+                telnetCommandBuffer = "";            
+                
+                if (readingScript) printDual("\r"); // Maintain cursor alignment in editor
+            }
+            // DELETE/BACKSPACE KEY
             else if (c == '\b' || c == 127) {
                 if (telnetCommandBuffer.length() > 0) {
                     telnetCommandBuffer.remove(telnetCommandBuffer.length() - 1);
@@ -614,15 +674,11 @@ void loop() {
                     client.print("\033[2K\r");
                     Serial.print("\033[2K\r");
                     
-                    // FIX: Print root prompt ONLY if editor is closed!
-                    if (!readingScript) {
-                        printPrompt();
-                    }
-                    
+                    if (!readingScript) printPrompt();
                     printDual(telnetCommandBuffer);
                 }
             }
-            // Filter to print only normal characters
+            // NORMAL CHARACTERS
             else if (c >= 32 && c <= 126) {
                 telnetCommandBuffer += c;
                 Serial.print(c); 
@@ -630,25 +686,23 @@ void loop() {
         }
     }
 
-    // 3. SERIAL MANAGEMENT (PC USB Cable)
+    // 3. SERIAL MANAGEMENT (USB Cable)
     while (Serial.available() > 0) {
         char c = Serial.read();
         
+        // Route character to Live Mode if active.
+        if (handleLiveModeInput(c)) continue;
+
         if (c == '\r') continue; 
 
+        // ENTER KEY
         if (c == '\n') {
-            if (serialCommandBuffer.length() > 0) {
-                processCommand(serialCommandBuffer);
-                serialCommandBuffer = "";
-                // FIX: Also on USB serial, perform a clean newline in the editor
-                if (readingScript) {
-                    printDual("\r\n");
-                }
-            } else {
-                printDashboard();
-                printPrompt();
-            }
-        } 
+            processCommand(serialCommandBuffer); 
+            serialCommandBuffer = "";            
+            
+            if (readingScript) printDual("\r\n"); 
+        }
+        // DELETE/BACKSPACE KEY
         else if (c == '\b' || c == 0x7F) {
             if (serialCommandBuffer.length() > 0) {
                 serialCommandBuffer.remove(serialCommandBuffer.length() - 1);
@@ -656,14 +710,11 @@ void loop() {
                 client.print("\033[2K\r");
                 Serial.print("\033[2K\r");
                 
-                // FIX: Print root prompt ONLY if editor is closed!
-                if (!readingScript) {
-                    printPrompt();
-                }
-                
+                if (!readingScript) printPrompt();
                 printDual(serialCommandBuffer);
             }
         }
+        // NORMAL CHARACTERS
         else if (c >= 32 && c <= 126) {
             serialCommandBuffer += c;
             Serial.print(c); 
@@ -671,7 +722,7 @@ void loop() {
         }
     }
 
-    // 4. PHYSICAL BOOT BUTTON
+    // 4. PHYSICAL BOOT BUTTON (Payload Trigger)
     static bool lastHigh = true;
     bool high = (digitalRead(BTN_PIN) != BTN_LEVEL);
     if (lastHigh && !high) {
@@ -683,11 +734,11 @@ void loop() {
         } else if (!Keyboard.isConnected()) {
             printlnDual(String(C_RED) + "\n[-] BLE Target not connected." + C_RESET);
         } else {
-            runScriptFile(activeScript);
+            BuckyParser::runScript(activeScript);
         }
         printPrompt();
     }
     lastHigh = high;
 
-    delay(10);
+    delay(10); // CPU yielding for RTOS stability
 }
