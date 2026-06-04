@@ -577,10 +577,10 @@ bool handleLiveModeInput(char c) {
         int step = 15; 
         
         if (liveMouseMode) {
-            if (c == 'A') Mouse.move(0, -step + 5, 0);      
+            if (c == 'A') Mouse.move(0, -step + 3, 0);      
             else if (c == 'B') Mouse.move(0, step, 0);  
             else if (c == 'C') Mouse.move(step, 0, 0);  
-            else if (c == 'D') Mouse.move(-step + 5, 0, 0); 
+            else if (c == 'D') Mouse.move(-step + 3, 0, 0); 
         } else {
             if (c == 'A') Keyboard.write(KEY_UP_ARROW);
             else if (c == 'B') Keyboard.write(KEY_DOWN_ARROW);
@@ -620,9 +620,9 @@ bool handleLiveModeInput(char c) {
     } 
     else if (liveMouseMode) {
         int step = 15; 
-        if (c == 'w' || c == 'W') Mouse.move(0, -step, 0);
+        if (c == 'w' || c == 'W') Mouse.move(0, -step + 3, 0);
         else if (c == 's' || c == 'S') Mouse.move(0, step, 0);
-        else if (c == 'a' || c == 'A') Mouse.move(-step, 0, 0);
+        else if (c == 'a' || c == 'A') Mouse.move(-step + 3, 0, 0);
         else if (c == 'd' || c == 'D') Mouse.move(step, 0, 0);
         else if (c == 'q' || c == 'Q') Mouse.click(MOUSE_LEFT);
         else if (c == 'e' || c == 'E') Mouse.click(MOUSE_RIGHT);
