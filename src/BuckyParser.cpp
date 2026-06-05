@@ -1,7 +1,8 @@
 #include "BuckyParser.h"
+#include "config.h"
 
 int BuckyParser::defaultDelay = 0;
-String BuckyParser::currentLayout = "US"; // Default layout token
+String BuckyParser::currentLayout = "US";
 
 static uint8_t getKeycode(const String& key) {
     String keyName = key;
@@ -55,10 +56,8 @@ void BuckyParser::typeChar(char c) {
         return;
     }
 
-    // --- ITALIAN LAYOUT PHYSICAL ROUTING MATRIX ---
     bool handled = true;
 
-    // 1. ALT-GR KEYS (Chiocciola, Cancelletto, Quadre, Graffe, Euro)
     if (c == '@') { Keyboard.press(KEY_RIGHT_ALT); Keyboard.press(';'); }      
     else if (c == '#') { Keyboard.press(KEY_RIGHT_ALT); Keyboard.press('\''); } 
     else if (c == '[') { Keyboard.press(KEY_RIGHT_ALT); Keyboard.press('['); }  
@@ -67,17 +66,15 @@ void BuckyParser::typeChar(char c) {
     else if (c == '}') { Keyboard.press(KEY_RIGHT_ALT); Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press(']'); } 
     else if (c == (char)0x80) { Keyboard.press(KEY_RIGHT_ALT); Keyboard.press('e'); }
     
-    // 2. PHYSICALLY MOVED KEYS
     else if (c == '\\') { Keyboard.press('`'); }
     else if (c == '+') { Keyboard.press(']'); }                                 
     else if (c == '*') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press(']'); } 
     else if (c == '"') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('2'); } 
-    else if (c == '<') { Keyboard.press(236); }                                 // Scancode for ISO <
+    else if (c == '<') { Keyboard.press(236); }                                 
     else if (c == '>') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press(236); } 
     else if (c == '\'') { Keyboard.press('-'); }                                
     else if (c == '-') { Keyboard.press('/'); }                                 
     
-    // 3. BASE SHIFTED CHARACTERS
     else if (c == '&') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('6'); } 
     else if (c == '/') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('7'); } 
     else if (c == '(') { Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('8'); } 
@@ -94,9 +91,8 @@ void BuckyParser::typeChar(char c) {
 
     if (handled) {
         delay(15);
-        Keyboard.releaseAll(); // Release hardware modifiers
+        Keyboard.releaseAll(); 
     } else {
-        // Standard alphabetical or numerical character
         Keyboard.write(c);
     }
 }
@@ -121,14 +117,14 @@ void BuckyParser::executeCommand(const String& rawCommand) {
     }
 
     if (cmdWord == "STRING") {
-        payload.replace("€", "\x80"); // Converte i 3 byte UTF-8 dell'Euro in un singolo Token
+        payload.replace("€", "\x80"); 
         for (int i = 0; i < payload.length(); i++) {
             BuckyParser::typeChar(payload.charAt(i));
             delay(15); 
         }
     }
     else if (cmdWord == "STRINGLN") {
-        payload.replace("€", "\x80"); // Converte i 3 byte UTF-8 dell'Euro in un singolo Token
+        payload.replace("€", "\x80"); 
         for (int i = 0; i < payload.length(); i++) {
             BuckyParser::typeChar(payload.charAt(i));
             delay(15);
@@ -169,9 +165,7 @@ void BuckyParser::executeCommand(const String& rawCommand) {
             token.trim();
             
             if (token.length() > 0) {
-                // Modifiers and macro combinations are layout independent at hardware scancode level
                 uint8_t keycode = (token.length() == 1) ? token.charAt(0) : getKeycode(token);
-                
                 if (keycode != 0) {
                     Keyboard.press(keycode);
                     pressedSomething = true;
@@ -184,7 +178,7 @@ void BuckyParser::executeCommand(const String& rawCommand) {
             delay(50);
             Keyboard.releaseAll();
         } else {
-            printlnDual(String(C_RED) + "[-] Unknown Syntax: " + command + String(C_RESET));
+            printDual(String(C_RED) + "[-] Unknown Syntax: " + command + C_RESET + "\r\n");
         }
     }
     
@@ -196,25 +190,44 @@ void BuckyParser::runScript(const String& filename) {
     if (!safeFilename.startsWith("/")) safeFilename = "/" + safeFilename;
     
     if (!LittleFS.exists(safeFilename)) {
-        printlnDual(String(C_RED) + "[-] Error: File not found -> " + safeFilename + String(C_RESET));
+        printDual(String(C_RED) + "[-] Error: File not found -> " + safeFilename + C_RESET + "\r\n");
         return;
     }
     
     File f = LittleFS.open(safeFilename, "r");
-    printlnDual(String(C_YELLOW) + "[*] Executing script: " + safeFilename + String(C_RESET));
+    printDual(String(C_YELLOW) + "[*] Executing script: " + safeFilename + C_RESET + "\r\n");
     
     defaultDelay = 0; 
     
+    char lineBuf[BuckyConfig::FILE_READ_BUFFER_SIZE];
+    int idx = 0;
+    
     while (f.available()) {
-        String line = f.readStringUntil('\n');
+        char c = f.read();
+        if (c == '\n' || idx >= sizeof(lineBuf) - 1) {
+            lineBuf[idx] = '\0';
+            String line = String(lineBuf);
+            line.trim();
+            if (line.length() > 0) {
+                printDual(String(C_GRAY) + "> " + line + C_RESET + "\r\n");
+                executeCommand(line);
+            }
+            idx = 0;
+        } else if (c != '\r') {
+            lineBuf[idx++] = c;
+        }
+    }
+    
+    if (idx > 0) {
+        lineBuf[idx] = '\0';
+        String line = String(lineBuf);
         line.trim();
         if (line.length() > 0) {
-            printlnDual(String(C_GRAY) + "> " + line + String(C_RESET));
+            printDual(String(C_GRAY) + "> " + line + C_RESET + "\r\n");
             executeCommand(line);
         }
     }
     f.close();
-    
     Keyboard.releaseAll(); 
-    printlnDual(String(C_GREEN) + "[+] Execution completed." + String(C_RESET));
+    printDual(String(C_GREEN) + "[+] Execution completed." + C_RESET + "\r\n");
 }

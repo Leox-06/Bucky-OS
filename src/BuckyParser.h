@@ -15,6 +15,7 @@
 #define C_RESET   "\033[0m"
 #define C_CLEAR   "\033[2J\033[H"
 
+extern void printDual(const String& msg);
 extern void printlnDual(const String& msg);
 
 class BuckyParser {
