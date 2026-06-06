@@ -34,9 +34,10 @@ File editorFile;
 bool readingScript = false;
 String scriptTargetName = "";
 
-String armedScript = ""; 
+String armedScript = "";
 int currentProfile = 1;
-String profileNames[3] = {"Bucky_1", "Bucky_2", "Bucky_3"};
+String profileNames[3]; // Initialized in loadConfiguration()
+String fsCache = "";    // Cached File System Tree
 
 // =========================================================
 // CLI & INTERACTIVE GLOBALS
@@ -66,7 +67,7 @@ void printlnDual(const String& msg) {
 }
 
 void printPrompt() {
-    printDual(String("\r") + C_CYAN + "root@bucky:~# " + C_RESET);
+    printDual(String("\r") + F(C_CYAN "root@bucky:~# " C_RESET));
 }
 
 // =========================================================
@@ -103,14 +104,14 @@ void loadConfiguration() {
                 String line = f.readStringUntil('\n');
                 line.trim();
                 
-                int eqIdx = line.indexOf('=');
+                int eqIdx = line.indexOf("=");
                 if (eqIdx == -1) continue;
                 
                 String key = line.substring(0, eqIdx);
                 String val = line.substring(eqIdx + 1);
                 
                 if (key == "LAYOUT") {
-                    if (val == "IT" || val == "US") BuckyParser::currentLayout = val;
+                    if (val == BuckyConfig::LAYOUT_IT || val == BuckyConfig::LAYOUT_US) BuckyParser::currentLayout = val;
                 }
                 else if (key == "ARMED_SCRIPT") armedScript = val;
                 else if (key == "CURRENT_PROFILE") {
@@ -122,6 +123,8 @@ void loadConfiguration() {
                 else if (key == "PROFILE_3") profileNames[2] = val;
             }
             f.close();
+        } else {
+            printlnDual(String(F(C_RED "[-] Error opening config file for reading." C_RESET)));
         }
     }
 }
@@ -142,120 +145,72 @@ bool isSystemFile(String name) {
 // UI & DASHBOARD RENDERING (ANTI-LEAK & FLASH OPTIMIZED)
 // =========================================================
 
-void printTree(String path, String prefix) {
+void buildTree(String path, String prefix, String& output) {
     File dir = LittleFS.open(path);
-    if (!dir || !dir.isDirectory()) { if(dir) dir.close(); return; }
+    if (!dir || !dir.isDirectory()) {
+        if (dir) dir.close();
+        return;
+    }
 
+    std::vector<File> files;
     File file = dir.openNextFile();
     while (file) {
         String fname = String(file.name());
         int lastSlash = fname.lastIndexOf('/');
         String shortName = (lastSlash >= 0) ? fname.substring(lastSlash + 1) : fname;
-        if (isSystemFile(shortName)) {
-            file.close(); 
-            file = dir.openNextFile();
-        } else {
-            break;
-        }
-    }
 
-    while (file) {
-        String fname = String(file.name());
+        if (!isSystemFile(shortName)) files.push_back(file);
+        else file.close();
+        file = dir.openNextFile();
+    }
+    dir.close();
+
+    String activeScript = getActiveScript();
+    for (size_t i = 0; i < files.size(); ++i) {
+        File currentFile = files[i];
+        String fname = String(currentFile.name());
         int lastSlash = fname.lastIndexOf('/');
         String shortName = (lastSlash >= 0) ? fname.substring(lastSlash + 1) : fname;
 
-        File nextValidFile;
-        File temp = dir.openNextFile();
-        while (temp) {
-            String tempName = String(temp.name());
-            int ts = tempName.lastIndexOf('/');
-            String tShortName = (ts >= 0) ? tempName.substring(ts + 1) : tempName;
-            if (!isSystemFile(tShortName)) {
-                nextValidFile = temp;
-                break;
-            }
-            temp.close(); 
-            temp = dir.openNextFile();
-        }
+        bool isLast = (i == files.size() - 1);
+        String connector = isLast ? "└── " : "├── ";
+        String linePrefix = String(C_GRAY) + prefix + connector + String(C_RESET);
 
-        bool isThisLast = !nextValidFile;
-        String active = getActiveScript();
         String fullPath = path;
         if (!fullPath.endsWith("/")) fullPath += "/";
         fullPath += shortName;
 
-        String connector = isThisLast ? "└── " : "├── ";
-        String line = String(C_GRAY) + prefix + connector + String(C_RESET);
-
-        if (file.isDirectory()) {
-            printlnDual("  " + line + C_BLUE + shortName + C_RESET);
-            String newPrefix = prefix + (isThisLast ? "    " : "│   ");
-            file.close(); 
-            printTree(fullPath, newPrefix); 
+        if (currentFile.isDirectory()) {
+            output += "  " + linePrefix + C_BLUE + shortName + C_RESET + "\r\n";
+            String newPrefix = prefix + (isLast ? "    " : "│   ");
+            currentFile.close();
+            buildTree(fullPath, newPrefix, output); 
         } else {
-            line += shortName + C_GRAY + " (" + String(file.size()) + "b)" + C_RESET;
-            if (fullPath == active || String("/") + shortName == active) {
-                line += String(C_RED) + "  <-- (ACTIVE)" + String(C_RESET);
+            String fileDetails = shortName + C_GRAY + " (" + String(currentFile.size()) + "b)" + C_RESET;
+            if (fullPath == activeScript || String("/") + shortName == activeScript) {
+                fileDetails += String(C_RED) + "  <-- (ACTIVE)" + String(C_RESET);
             }
-            printlnDual("  " + line);
-            file.close(); 
+            output += "  " + linePrefix + fileDetails + "\r\n";
+            currentFile.close();
         }
-        
-        file = nextValidFile; 
-        delay(1);
     }
-    dir.close(); 
 }
 
-String getStorageProgressBar() {
-    size_t total = LittleFS.totalBytes();
-    size_t used = LittleFS.usedBytes();
-    
-    if (total == 0) return "[Storage Error]";
-
-    int percentage = (used * 100) / total;
-    int filledBlocks = percentage / 10; 
-
-    String bar = "[";
-    for (int i = 0; i < BuckyConfig::STORAGE_BAR_WIDTH; i++) {
-        bar += (i < filledBlocks) ? "█" : "░";
-    }
-    bar += "] " + String(percentage) + "% (" + String(used / 1024) + "KB / " + String(total / 1024) + "KB)";
-    return bar;
-}
-
-void printDashboard() {
-    String out = "";
-    out.reserve(2048); 
-    
-    out += C_CLEAR; 
-    out += F(C_YELLOW "      ,~~\r\n");
-    out += F("     (  9 )-_,\r\n");
-    out += F("(\\___ )=='-'\r\n");
-    out += F(" \\ .   ) )" C_CYAN "    Bucky OS - Payload Injector\r\n");
-    out += String(C_YELLOW) + "  \\ `-' /" + String(C_RESET) + "    ID: " + String(C_GREEN) + "[" + String(currentProfile) + "] " + profileNames[currentProfile-1] + String(C_RESET) + "\r\n";
-    out += String(C_YELLOW) + "   `~j-'" + String(C_RESET) + "      BLE Target : " + String(Keyboard.isConnected() ? String(C_GREEN)+"[CONNECTED]" : String(C_RED)+"[WAITING]") + "\r\n";
-    
-    String layoutInfo = (BuckyParser::currentLayout == "IT") ? "IT (Windows, iOS/iPadOS)" : "US (Android, macOS)";
-    out += String(C_YELLOW) + "    \"=:" + String(C_RESET) + "        Layout     : " + String(C_CYAN) + layoutInfo + String(C_RESET) + "\r\n";
-    out += "                Storage    : " + String(C_CYAN) + getStorageProgressBar() + String(C_RESET) + "\r\n"; 
-    
-    out += F(C_CYAN "[ ROOT FILE SYSTEM ]\r\n" C_RESET);
-    out += F(C_BLUE "  /\r\n" C_RESET);
-    
-    printDual(out); 
+void refreshFSCache() {
+    fsCache = "";
+    fsCache.reserve(1024);
     
     bool hasFiles = false;
     File root = LittleFS.open("/");
     if (root) {
         File f = root.openNextFile();
-        while(f) {
+        while (f) {
             String fn = String(f.name());
             int ls = fn.lastIndexOf('/');
             String sn = (ls >= 0) ? fn.substring(ls + 1) : fn;
-            if (!isSystemFile(sn)) { 
-                hasFiles = true; 
-                f.close(); 
+            if (!isSystemFile(sn)) {
+                hasFiles = true;
+                f.close();
                 break; 
             }
             f.close(); 
@@ -264,11 +219,76 @@ void printDashboard() {
         root.close(); 
     }
 
-    if (!hasFiles) printlnDual(String(C_GRAY) + "  └── [ Empty ]" + C_RESET);
-    else {
-        printTree("/", "");
-        printlnDual(String(C_GRAY) + "------------------------------------------------" + C_RESET);
+    if (!hasFiles) {
+        fsCache = String(C_GRAY) + "  └── [ Empty ]\r\n" + C_RESET;
+    } else {
+        buildTree("/", "", fsCache);
+        fsCache += String(C_GRAY) + "------------------------------------------------\r\n" + C_RESET;
     }
+}
+
+String getStorageProgressBar() {
+    size_t total = LittleFS.totalBytes();
+    size_t used = LittleFS.usedBytes();
+    
+    if (total == 0) return F("[Storage Error]");
+
+    int percentage = (used * 100) / total;
+    int filledBlocks = percentage / 10;
+
+    String bar = "[";
+    for (int i = 0; i < BuckyConfig::STORAGE_BAR_WIDTH; i++) {
+        bar += (i < filledBlocks) ? "█" : "░";
+    }
+    bar += "] ";
+    bar += percentage;
+    bar += "% (";
+    bar += (used / 1024);
+    bar += "KB / ";
+    bar += (total / 1024);
+    bar += "KB)";
+    return bar;
+}
+
+void printDashboard() {
+    String out = "";
+    out.reserve(3072);
+
+    out += F(C_CLEAR);
+    out += F(C_YELLOW "      ,~~\r\n");
+    out += F("     (  9 )-_,\r\n");
+    out += F("(\\___ )=='-'\r\n");
+    out += F(" \\ .   ) )" C_CYAN "    Bucky OS - Payload Injector\r\n");
+
+    out += F(C_YELLOW "  \\ `-' /" C_RESET "    ID: " C_GREEN "[");
+    out += currentProfile;
+    out += "] ";
+    out += profileNames[currentProfile - 1];
+    out += F(C_RESET "\r\n");
+
+    out += F(C_YELLOW "   `~j-'" C_RESET "      BLE Target : ");
+    if (Keyboard.isConnected()) {
+        out += F(C_GREEN "[CONNECTED]" C_RESET "\r\n");
+    } else {
+        out += F(C_RED "[WAITING]" C_RESET "\r\n");
+    }
+
+    String layoutInfo = (BuckyParser::currentLayout == BuckyConfig::LAYOUT_IT) ? F("IT (Windows, iOS/iPadOS)") : F("US (Android, macOS)");
+    out += F(C_YELLOW "    \"=:" C_RESET "        Layout     : " C_CYAN);
+    out += layoutInfo;
+    out += F(C_RESET "\r\n");
+
+    out += F("                Storage    : " C_CYAN);
+    out += getStorageProgressBar();
+    out += F(C_RESET "\r\n");
+
+    out += F(C_CYAN "[ ROOT FILE SYSTEM ]\r\n" C_RESET);
+    out += F(C_BLUE "  /\r\n" C_RESET);
+
+    if (fsCache == "") refreshFSCache();
+    out += fsCache;
+
+    printDual(out);
 }
 
 // =========================================================
@@ -292,6 +312,7 @@ void processCommand(String command) {
         if (exitCheck == "END") {
             readingScript = false;
             editorFile.close();
+            refreshFSCache();
             printDashboard();
             printlnDual(String(C_GREEN) + "[+] File " + scriptTargetName + " saved successfully!" + C_RESET);
         } else {
@@ -312,30 +333,34 @@ void processCommand(String command) {
 
     if (command == "help") {
         String out = "";
-        out.reserve(2048); 
+        out.reserve(2560); 
         
         out += F(C_CYAN "=== BUCKY-OS COMMAND REFERENCE ===\r\n\r\n" C_RESET);
         
+        out += F(C_YELLOW "[ QUICK START ]\r\n" C_RESET);
+        out += F(C_GRAY "  1. Connect your PC/Phone to WiFi 'bucky' (Pass: BuckyAdmin2026!)\r\n");
+        out += F("  2. Pair the Target OS to BLE device 'Bucky_1'\r\n");
+        out += F("  3. Run a script: run example\r\n\r\n" C_RESET);
+
         out += F(C_CYAN "[ BLE & IDENTITY MANAGEMENT ]\r\n" C_RESET);
-        out += F(C_GRAY "  target <1-3>  : Switch hardware profile (Spoofs MAC & BLE Name)\r\n");
-        out += F("  rename <name> : Rename current Bluetooth identity (Max 30 chars)\r\n");
-        out += F("  scan          : Discover nearby vulnerable BLE targets (5s)\r\n");
-        out += F("  layout <it/us>: Set keyboard layout for the target OS\r\n\r\n" C_RESET);
+        out += F(C_GRAY "  target <1-3>  : Switch profile (Spoofs MAC & BLE Name)\r\n");
+        out += F("  rename <name> : Rename identity (e.g., rename Magic Keyboard)\r\n");
+        out += F("  scan          : Discover nearby BLE targets\r\n");
+        out += F("  layout <it/us>: Set keyboard layout (IT = Win/iOS, US = Mac/Android)\r\n\r\n" C_RESET);
         
         out += F(C_CYAN "[ FILE SYSTEM & EXECUTION ]\r\n" C_RESET);
-        out += F(C_GRAY "  write <file>  : Open the built-in DuckyScript text editor\r\n");
-        out += F("  cat <file>    : Print script contents to terminal\r\n");
-        out += F("  run <f1> <f2> : Execute one or multiple chained scripts\r\n");
-        out += F("  set <file>    : Arm a script for hardware BOOT button execution\r\n");
-        out += F("  mkdir <dir>   : Create directory\r\n");
-        out += F("  rmdir <dir>   : Remove empty directory\r\n");
+        out += F(C_GRAY "  write <file>  : Built-in DuckyScript editor\r\n");
+        out += F("  cat <file>    : View script content\r\n");
+        out += F("  run <f1> <f2> : Run scripts (e.g., run init.txt payload.txt)\r\n");
+        out += F("  set <file>    : Arm script for physical BOOT button\r\n");
+        out += F("  mkdir/rmdir   : Manage directories\r\n");
         out += F("  rm <file>     : Delete script\r\n\r\n" C_RESET);
 
         out += F(C_CYAN "[ REAL-TIME CONTROL ]\r\n" C_RESET);
-        out += F(C_GRAY "  live          : Enter Live Control Mode (Remote HID Mouse & Keyboard)\r\n\r\n" C_RESET);
+        out += F(C_GRAY "  live          : Remote HID Mouse & Keyboard Mode\r\n\r\n" C_RESET);
 
         out += F(C_CYAN "[ SYSTEM ]\r\n" C_RESET);
-        out += F(C_GRAY "  reboot        : Soft reset Bucky-OS" C_RESET);
+        out += F(C_GRAY "  reboot        : Soft reset | version: v1.0.0" C_RESET);
         
         printlnDual(out); 
     }
@@ -348,7 +373,7 @@ void processCommand(String command) {
             printlnDual(String(C_YELLOW) + "[*] Rebooting ESP32... Reconnect in 2s." + C_RESET);
             delay(1000);
             ESP.restart(); 
-        } else printlnDual(String(C_RED) + "[-] Invalid profile. Please choose 1, 2, or 3." + C_RESET);
+        } else printlnDual(String(C_RED) + "[-] Invalid profile. Use 1, 2, or 3 (e.g., target 2)." + C_RESET);
     }
     else if (command.startsWith("rename ")) {
         String newName = getParam(command, 7);
@@ -358,7 +383,7 @@ void processCommand(String command) {
             printlnDual(String(C_GREEN) + "[+] Identity updated. Rebooting..." + C_RESET);
             delay(1000);
             ESP.restart(); 
-        } else printlnDual(String(C_RED) + "[-] Invalid name." + C_RESET);
+        } else printlnDual(String(C_RED) + "[-] Invalid name. Must be 1-30 characters (e.g., rename MyKeyboard)." + C_RESET);
     }
     else if (command == "live") {
         if (!Keyboard.isConnected()) {
@@ -412,17 +437,19 @@ void processCommand(String command) {
         String dir = getParam(command, 6);
         if (!dir.startsWith("/")) dir = "/" + dir;
         if (LittleFS.mkdir(dir)) {
+            refreshFSCache();
             printDashboard();
             printlnDual(String(C_GREEN) + "[+] Folder created." + C_RESET);
-        } else printlnDual(String(C_RED) + "[-] Failed to create folder." + C_RESET);
+        } else printlnDual(String(C_RED) + "[-] Failed to create folder. (Does it already exist?)" + C_RESET);
     }
     else if (command.startsWith("rmdir ")) {
         String dir = getParam(command, 6);
         if (!dir.startsWith("/")) dir = "/" + dir;
         if (LittleFS.rmdir(dir)) {
+            refreshFSCache();
             printDashboard();
             printlnDual(String(C_GREEN) + "[+] Folder deleted." + C_RESET);
-        } else printlnDual(String(C_RED) + "[-] Failed to delete folder (Must be empty)." + C_RESET);
+        } else printlnDual(String(C_RED) + "[-] Failed to delete folder (Must be empty and exist)." + C_RESET);
     }
     else if (command.startsWith("cat ")) {
         String fn = getParam(command, 4);
@@ -455,8 +482,9 @@ void processCommand(String command) {
             out.reserve(1024);
             
             out += String(C_CYAN) + "=== 📝 EDITOR: " + scriptTargetName + " ===\r\n\r\n" + C_RESET;
-            out += F(C_YELLOW "[ TEXT INJECTION ]\r\n" C_RESET);
-            out += F(C_GRAY "  STRING <txt>   : Inject text payload\r\n");
+            out += F(C_YELLOW "[ COMMANDS ]\r\n" C_RESET);
+            out += F(C_GRAY "  REM <txt>      : Comment (ignored by parser)\r\n");
+            out += F("  STRING <txt>   : Inject text payload\r\n");
             out += F("  STRINGLN <txt> : Inject text and press RETURN\r\n\r\n" C_RESET);
             
             out += F(C_YELLOW "[ HARDWARE CONTROLS ]\r\n" C_RESET);
@@ -464,8 +492,8 @@ void processCommand(String command) {
             out += F("  ENTER, SPACE, TAB, ESC, BACKSPACE, UP, DOWN, LEFT, RIGHT\r\n\r\n" C_RESET);
             
             out += F(C_YELLOW "[ DELAYS & MOUSE ]\r\n" C_RESET);
-            out += F(C_GRAY "  DELAY <ms>       : Single execution pause (e.g., DELAY 1000)\r\n");
-            out += F("  DEFAULTDELAY <ms>: Global pause applied between every line\r\n");
+            out += F(C_GRAY "  DELAY <ms>       : Single pause (e.g., DELAY 1000)\r\n");
+            out += F("  DEFAULTDELAY <ms>: Global pause between lines\r\n");
             out += F("  MOUSE_MOVE <x> <y> / MOUSE_CLICK [LEFT/RIGHT/MIDDLE]\r\n\r\n" C_RESET);
             
             out += F(C_GREEN "-> Editor active. Paste your DuckyScript payload.\r\n");
@@ -482,9 +510,10 @@ void processCommand(String command) {
                 armedScript = "";
                 saveConfiguration();
             }
+            refreshFSCache();
             printDashboard();
             printlnDual(String(C_GREEN) + "[+] File deleted." + C_RESET);
-        } else printlnDual(String(C_RED) + "[-] Delete failed." + C_RESET);
+        } else printlnDual(String(C_RED) + "[-] Delete failed. (Does the file exist?)" + C_RESET);
     } 
     else if (command.startsWith("run ")) {
         if (Keyboard.isConnected()) {
@@ -671,7 +700,6 @@ void setup() {
     Mouse.begin();
 
     WiFi.mode(WIFI_AP);
-    WiFi.setTxPower(WIFI_POWER_11dBm); // Anti-Brownout transmission limit
     WiFi.softAP(BuckyConfig::WIFI_SSID, BuckyConfig::WIFI_PASSWORD, BuckyConfig::WIFI_CHANNEL, BuckyConfig::WIFI_HIDDEN_SSID); 
     
     telnetServer.begin();

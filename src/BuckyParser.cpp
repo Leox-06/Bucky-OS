@@ -9,7 +9,7 @@
 #include "config.h"
 
 int BuckyParser::defaultDelay = 0;
-String BuckyParser::currentLayout = "US";
+String BuckyParser::currentLayout = BuckyConfig::DEFAULT_LAYOUT;
 
 static uint8_t getKeycode(const String& key) {
     String keyName = key;
@@ -43,7 +43,7 @@ static uint8_t getKeycode(const String& key) {
 }
 
 void BuckyParser::typeChar(char c) {
-    if (currentLayout == "US") {
+    if (currentLayout == BuckyConfig::LAYOUT_US) {
         Keyboard.write(c);
         return;
     }
@@ -139,9 +139,11 @@ void BuckyParser::executeCommand(const String& rawCommand) {
             start = spaceIdx + 1;
         } while (spaceIdx != -1);
         
-        if (pressed) { delay(50); Keyboard.releaseAll(); }
-        else {
-            printDual(String(C_RED) + F("[-] Unknown Syntax: ") + command + C_RESET + "\r\n");
+        if (pressed) {
+            delay(50);
+            Keyboard.releaseAll();
+        } else {
+            printDual(String(F(C_RED "[-] Unknown Syntax: ")) + command + F(C_RESET "\r\n"));
         }
     }
     if (defaultDelay > 0) delay(defaultDelay);
@@ -150,14 +152,14 @@ void BuckyParser::executeCommand(const String& rawCommand) {
 void BuckyParser::runScript(const String& filename) {
     String path = filename.startsWith("/") ? filename : "/" + filename;
     if (!LittleFS.exists(path)) {
-        printDual(String(C_RED) + F("[-] Error: File not found -> ") + path + C_RESET + "\r\n");
+        printDual(String(F(C_RED "[-] Error: File not found -> ")) + path + F(C_RESET "\r\n"));
         return;
     }
-    
+
     File f = LittleFS.open(path, "r");
-    printDual(String(C_YELLOW) + F("[*] Executing: ") + path + C_RESET + "\r\n");
-    
-    defaultDelay = 0; 
+    printDual(String(F(C_YELLOW "[*] Executing: ")) + path + F(C_RESET "\r\n"));
+
+    defaultDelay = 0;
     char lineBuf[BuckyConfig::FILE_READ_BUFFER_SIZE];
     int idx = 0;
     
@@ -168,7 +170,7 @@ void BuckyParser::runScript(const String& filename) {
             String line = String(lineBuf);
             line.trim();
             if (line.length() > 0) {
-                printDual(String(C_GRAY) + F("> ") + line + C_RESET + "\r\n");
+                printDual(String(F(C_GRAY "> ")) + line + F(C_RESET "\r\n"));
                 executeCommand(line);
             }
             idx = 0;
@@ -180,11 +182,11 @@ void BuckyParser::runScript(const String& filename) {
         String line = String(lineBuf);
         line.trim();
         if (line.length() > 0) {
-            printDual(String(C_GRAY) + F("> ") + line + C_RESET + "\r\n");
+            printDual(String(F(C_GRAY "> ")) + line + F(C_RESET "\r\n"));
             executeCommand(line);
         }
     }
     f.close();
-    Keyboard.releaseAll(); 
-    printDual(String(C_GREEN) + F("[+] Execution finished.") + C_RESET + "\r\n");
+    Keyboard.releaseAll();
+    printDual(String(F(C_GREEN "[+] Execution finished." C_RESET "\r\n")));
 }

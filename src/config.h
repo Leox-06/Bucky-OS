@@ -19,6 +19,9 @@ namespace BuckyConfig {
     // --- FILE SYSTEM & PERSISTENCE ---
     static const char CONFIG_FILE_PATH[] = "/config";          // Unified registry file
     static const char DEFAULT_LAYOUT[] = "US";
+    static const char LAYOUT_IT[] = "IT";
+    static const char LAYOUT_US[] = "US";
+
     static const char DEFAULT_PROFILE_NAMES[3][16] = {
         "Bucky_1",
         "Bucky_2",
