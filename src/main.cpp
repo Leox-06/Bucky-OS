@@ -1,3 +1,10 @@
+/**
+ * ============================================================================
+ * BUCKY-OS (v1.0.0) - Commercial Release
+ * Open-Source Payload Injector & Remote Administration Tool
+ * ============================================================================
+ */
+
 #include <Arduino.h>
 #include <WiFi.h>
 #include <BleCombo.h>
@@ -73,12 +80,12 @@ String getActiveScript() {
 void saveConfiguration() {
     File f = LittleFS.open(BuckyConfig::CONFIG_FILE_PATH, "w");
     if (f) {
-        f.println("LAYOUT=" + BuckyParser::currentLayout);
-        f.println("ARMED_SCRIPT=" + armedScript);
-        f.println("CURRENT_PROFILE=" + String(currentProfile));
-        f.println("PROFILE_1=" + profileNames[0]);
-        f.println("PROFILE_2=" + profileNames[1]);
-        f.println("PROFILE_3=" + profileNames[2]);
+        f.println(String("LAYOUT=") + BuckyParser::currentLayout);
+        f.println(String("ARMED_SCRIPT=") + armedScript);
+        f.println(String("CURRENT_PROFILE=") + String(currentProfile));
+        f.println(String("PROFILE_1=") + profileNames[0]);
+        f.println(String("PROFILE_2=") + profileNames[1]);
+        f.println(String("PROFILE_3=") + profileNames[2]);
         f.close();
     }
 }
@@ -132,7 +139,7 @@ bool isSystemFile(String name) {
 }
 
 // =========================================================
-// UI & DASHBOARD RENDERING (ANTI-LEAK VERSION)
+// UI & DASHBOARD RENDERING (ANTI-LEAK & FLASH OPTIMIZED)
 // =========================================================
 
 void printTree(String path, String prefix) {
@@ -145,7 +152,7 @@ void printTree(String path, String prefix) {
         int lastSlash = fname.lastIndexOf('/');
         String shortName = (lastSlash >= 0) ? fname.substring(lastSlash + 1) : fname;
         if (isSystemFile(shortName)) {
-            file.close(); // Chiudi prima di sovrascrivere
+            file.close(); 
             file = dir.openNextFile();
         } else {
             break;
@@ -167,7 +174,7 @@ void printTree(String path, String prefix) {
                 nextValidFile = temp;
                 break;
             }
-            temp.close(); // Chiudi i file di sistema nascosti
+            temp.close(); 
             temp = dir.openNextFile();
         }
 
@@ -183,7 +190,7 @@ void printTree(String path, String prefix) {
         if (file.isDirectory()) {
             printlnDual("  " + line + C_BLUE + shortName + C_RESET);
             String newPrefix = prefix + (isThisLast ? "    " : "│   ");
-            file.close(); // Chiudi la cartella corrente prima di entrare nella ricorsione!
+            file.close(); 
             printTree(fullPath, newPrefix); 
         } else {
             line += shortName + C_GRAY + " (" + String(file.size()) + "b)" + C_RESET;
@@ -191,13 +198,13 @@ void printTree(String path, String prefix) {
                 line += String(C_RED) + "  <-- (ACTIVE)" + String(C_RESET);
             }
             printlnDual("  " + line);
-            file.close(); // Chiudi il file appena stampato!
+            file.close(); 
         }
         
         file = nextValidFile; 
         delay(1);
     }
-    dir.close(); // Chiudi la directory principale del livello
+    dir.close(); 
 }
 
 String getStorageProgressBar() {
@@ -219,13 +226,13 @@ String getStorageProgressBar() {
 
 void printDashboard() {
     String out = "";
-    out.reserve(2048); // Riserva lo spazio per la grafica ASCII
+    out.reserve(2048); 
     
     out += C_CLEAR; 
-    out += String(C_YELLOW) + "      ,~~.\r\n";
-    out += "     (  9 )-_,\r\n";
-    out += "(\\___ )=='-'\r\n";
-    out += " \\ .   ) )" + String(C_CYAN) + "    Bucky OS - Payload Injector\r\n";
+    out += F(C_YELLOW "      ,~~\r\n");
+    out += F("     (  9 )-_,\r\n");
+    out += F("(\\___ )=='-'\r\n");
+    out += F(" \\ .   ) )" C_CYAN "    Bucky OS - Payload Injector\r\n");
     out += String(C_YELLOW) + "  \\ `-' /" + String(C_RESET) + "    ID: " + String(C_GREEN) + "[" + String(currentProfile) + "] " + profileNames[currentProfile-1] + String(C_RESET) + "\r\n";
     out += String(C_YELLOW) + "   `~j-'" + String(C_RESET) + "      BLE Target : " + String(Keyboard.isConnected() ? String(C_GREEN)+"[CONNECTED]" : String(C_RED)+"[WAITING]") + "\r\n";
     
@@ -233,13 +240,11 @@ void printDashboard() {
     out += String(C_YELLOW) + "    \"=:" + String(C_RESET) + "        Layout     : " + String(C_CYAN) + layoutInfo + String(C_RESET) + "\r\n";
     out += "                Storage    : " + String(C_CYAN) + getStorageProgressBar() + String(C_RESET) + "\r\n"; 
     
-    out += String(C_CYAN) + "[ ROOT FILE SYSTEM ]\r\n" + C_RESET;
-    out += String(C_BLUE) + "  /\r\n" + C_RESET;
+    out += F(C_CYAN "[ ROOT FILE SYSTEM ]\r\n" C_RESET);
+    out += F(C_BLUE "  /\r\n" C_RESET);
     
-    printDual(out); // Spara la prima parte della UI
+    printDual(out); 
     
-    // La stampa dell'albero (printTree) rimane ricorsiva, ma avendo liberato il pool
-    // adesso verrà elaborata senza mandare in blocco lwIP.
     bool hasFiles = false;
     File root = LittleFS.open("/");
     if (root) {
@@ -307,28 +312,32 @@ void processCommand(String command) {
 
     if (command == "help") {
         String out = "";
-        out.reserve(1024); // Pre-alloca la memoria per massima velocità
+        out.reserve(2048); 
         
-        out += String(C_CYAN) + "[ TARGET & BLUETOOTH ]\r\n" + C_RESET;
-        out += String(C_GRAY) + "  target <1-3>  : Switch BT identity to attack a different PC\r\n";
-        out += "  rename <name> : Change Bluetooth name of current identity\r\n";
-        out += "  scan          : Scan for nearby BLE targets (5s)\r\n";
-        out += "  run <files>   : Run one or multiple scripts chained via BLE\r\n";
-        out += "  live          : Enter Live Control Mode (Remote Keyboard/Mouse)\r\n";
-        out += String("  layout <it/us>: Switch character mapping for target OS layout\r\n\r\n") + C_RESET;
+        out += F(C_CYAN "=== BUCKY-OS COMMAND REFERENCE ===\r\n\r\n" C_RESET);
         
-        out += String(C_CYAN) + "[ FOLDERS & FILES ]\r\n" + C_RESET;
-        out += String(C_GRAY) + "  mkdir <dir>   : Create a new folder\r\n";
-        out += "  rmdir <dir>   : Delete an empty folder\r\n";
-        out += "  cat <file>    : Read script content\r\n";
-        out += "  write <file>  : Create/overwrite a script (Opens editor)\r\n";
-        out += "  rm <file>     : Delete a script\r\n";
-        out += String("  set <file>    : Arm a script for the physical BOOT button\r\n\r\n") + C_RESET;
+        out += F(C_CYAN "[ BLE & IDENTITY MANAGEMENT ]\r\n" C_RESET);
+        out += F(C_GRAY "  target <1-3>  : Switch hardware profile (Spoofs MAC & BLE Name)\r\n");
+        out += F("  rename <name> : Rename current Bluetooth identity (Max 30 chars)\r\n");
+        out += F("  scan          : Discover nearby vulnerable BLE targets (5s)\r\n");
+        out += F("  layout <it/us>: Set keyboard layout for the target OS\r\n\r\n" C_RESET);
+        
+        out += F(C_CYAN "[ FILE SYSTEM & EXECUTION ]\r\n" C_RESET);
+        out += F(C_GRAY "  write <file>  : Open the built-in DuckyScript text editor\r\n");
+        out += F("  cat <file>    : Print script contents to terminal\r\n");
+        out += F("  run <f1> <f2> : Execute one or multiple chained scripts\r\n");
+        out += F("  set <file>    : Arm a script for hardware BOOT button execution\r\n");
+        out += F("  mkdir <dir>   : Create directory\r\n");
+        out += F("  rmdir <dir>   : Remove empty directory\r\n");
+        out += F("  rm <file>     : Delete script\r\n\r\n" C_RESET);
 
-        out += String(C_CYAN) + "[ SYSTEM ]\r\n" + C_RESET;
-        out += String(C_GRAY) + "  reboot        : Restart the Bucky OS device" + C_RESET;
+        out += F(C_CYAN "[ REAL-TIME CONTROL ]\r\n" C_RESET);
+        out += F(C_GRAY "  live          : Enter Live Control Mode (Remote HID Mouse & Keyboard)\r\n\r\n" C_RESET);
+
+        out += F(C_CYAN "[ SYSTEM ]\r\n" C_RESET);
+        out += F(C_GRAY "  reboot        : Soft reset Bucky-OS" C_RESET);
         
-        printlnDual(out); // Spedisce l'intera guida in un unico pacchetto di rete
+        printlnDual(out); 
     }
     else if (command.startsWith("target ")) {
         int t = getParam(command, 7).toInt();
@@ -358,15 +367,25 @@ void processCommand(String command) {
         }
         liveMode = true;
         liveMouseMode = false;
-        printDual(C_CLEAR);
-        printlnDual(String(C_YELLOW) + ">>> 🔴 LIVE CONTROL MODE ACTIVE <<<" + C_RESET);
-        printlnDual(String(C_CYAN) + "[ SHORTCUTS & MACROS ]" + C_RESET);
-        printlnDual(String(C_GRAY) + "  Use {...} for combos: {ctrl+c}, {gui+r}, {alt+tab}" + C_RESET);
-        printlnDual(String(C_GRAY) + "  Single keys: {enter}, {tab}, {up}, {down}" + C_RESET);
-        printlnDual(String(C_GRAY) + "  Press '#' to toggle Mouse Mode (WASD/Clicks)" + C_RESET);
-        printlnDual(String(C_GRAY) + "  Press '~' to EXIT Live Mode" + C_RESET);
-        printlnDual(String(C_GRAY) + "  To type literal symbols, use: {#} and {~}" + C_RESET + "\n");
-        printlnDual(String(C_GREEN) + "Ready. Type normally..." + C_RESET);
+        
+        String out = "";
+        out.reserve(1024);
+        out += C_CLEAR;
+        out += F(C_YELLOW ">>> 🔴 LIVE CONTROL MODE ACTIVE <<<\r\n\r\n" C_RESET);
+        out += F(C_CYAN "[ DUCKYSCRIPT MACROS ]\r\n" C_RESET);
+        out += F(C_GRAY "  Use {...} to execute complex hardware scancodes instantly.\r\n");
+        out += F("  Examples: {ctrl+alt+delete}, {gui+r}, {alt+tab}\r\n");
+        out += F("  Keys    : {enter}, {esc}, {tab}, {backspace}, {up}, {down}\r\n\r\n" C_RESET);
+        
+        out += F(C_CYAN "[ HOTKEYS ]\r\n" C_RESET);
+        out += F(C_GRAY "  #  : Toggle MOUSE MODE (WASD = Move, Q/E/C = Click, R/F = Scroll)\r\n");
+        out += F("  ~  : EXIT Live Mode\r\n\r\n" C_RESET);
+        
+        out += F(C_CYAN "[ LITERAL SYMBOLS ]\r\n" C_RESET);
+        out += F(C_GRAY "  To type literal hotkey symbols, wrap them: {#} or {~}\r\n\r\n" C_RESET);
+        out += F(C_GREEN "Ready. All keystrokes are being routed to target..." C_RESET);
+        
+        printlnDual(out);
     }
     else if (command.startsWith("layout ")) {
         String lay = getParam(command, 7);
@@ -386,7 +405,7 @@ void processCommand(String command) {
         String fn = getParam(command, 4);
         if (setActiveScript(fn)) {
             printDashboard();
-            printlnDual(String(C_GREEN) + "[+] Armed for physical button." + C_RESET);
+            printlnDual(String(C_GREEN) + "[+] Armed for physical BOOT button." + C_RESET);
         } else printlnDual(String(C_RED) + "[-] Error: Script not found." + C_RESET);
     }
     else if (command.startsWith("mkdir ")) {
@@ -432,20 +451,27 @@ void processCommand(String command) {
             }
 
             readingScript = true;
-            printlnDual(String(C_CYAN) + "=== 📝 EDITOR: " + scriptTargetName + " ===" + C_RESET);
-            printlnDual(String(C_YELLOW) + "[ TEXT & TYPING ]" + C_RESET);
-            printlnDual(String(C_GRAY) + "  STRING <txt>   : Types text (e.g., STRING Hello World)");
-            printlnDual("  STRINGLN <txt> : Types text and presses Enter");
-            printlnDual(String(C_YELLOW) + "[ SPECIAL KEYS & COMBOS ]" + C_RESET);
-            printlnDual(String(C_GRAY) + "  ENTER, SPACE, TAB, ESC, BACKSPACE, UP, DOWN, LEFT, RIGHT");
-            printlnDual("  CTRL, ALT, SHIFT, GUI (e.g., CTRL SHIFT ESC, GUI r)");
-            printlnDual(String(C_YELLOW) + "[ DELAYS & MOUSE ]" + C_RESET);
-            printlnDual(String(C_GRAY) + "  DELAY <ms>       : Single pause (e.g., DELAY 1000)");
-            printlnDual("  DEFAULTDELAY <ms>: Auto-pause between every line");
-            printlnDual(String("  MOUSE_MOVE <x> <y> / MOUSE_CLICK [LEFT/RIGHT/MIDDLE]") + C_RESET);
-            printlnDual(String(C_CYAN) + "------------------------------------------------" + C_RESET);
-            printlnDual(String(C_GREEN) + "-> Type manually or paste your script." + C_RESET);
-            printlnDual(String(C_GREEN) + "-> Type 'END' on a new line to SAVE and exit." + C_RESET);
+            String out = "";
+            out.reserve(1024);
+            
+            out += String(C_CYAN) + "=== 📝 EDITOR: " + scriptTargetName + " ===\r\n\r\n" + C_RESET;
+            out += F(C_YELLOW "[ TEXT INJECTION ]\r\n" C_RESET);
+            out += F(C_GRAY "  STRING <txt>   : Inject text payload\r\n");
+            out += F("  STRINGLN <txt> : Inject text and press RETURN\r\n\r\n" C_RESET);
+            
+            out += F(C_YELLOW "[ HARDWARE CONTROLS ]\r\n" C_RESET);
+            out += F(C_GRAY "  CTRL, ALT, SHIFT, GUI (e.g., CTRL SHIFT ESC, GUI r)\r\n");
+            out += F("  ENTER, SPACE, TAB, ESC, BACKSPACE, UP, DOWN, LEFT, RIGHT\r\n\r\n" C_RESET);
+            
+            out += F(C_YELLOW "[ DELAYS & MOUSE ]\r\n" C_RESET);
+            out += F(C_GRAY "  DELAY <ms>       : Single execution pause (e.g., DELAY 1000)\r\n");
+            out += F("  DEFAULTDELAY <ms>: Global pause applied between every line\r\n");
+            out += F("  MOUSE_MOVE <x> <y> / MOUSE_CLICK [LEFT/RIGHT/MIDDLE]\r\n\r\n" C_RESET);
+            
+            out += F(C_GREEN "-> Editor active. Paste your DuckyScript payload.\r\n");
+            out += F("-> Type 'END' on a new line to SAVE and close the editor." C_RESET);
+            
+            printlnDual(out);
         } else printlnDual(String(C_RED) + "[-] Usage: write <filename>" + C_RESET);
     }
     else if (command.startsWith("rm ")) {
@@ -529,6 +555,7 @@ bool handleLiveModeInput(char c) {
     static uint8_t tokenLen = 0;
     static bool inBracket = false;
 
+    // UTF-8 Euro symbol parser
     static int utf8State = 0;
     if (c == (char)0xE2) { utf8State = 1; return true; } 
     else if (utf8State == 1 && c == (char)0x82) { utf8State = 2; return true; } 
@@ -544,12 +571,11 @@ bool handleLiveModeInput(char c) {
             tokenBuf[tokenLen] = '\0';
             String token = String(tokenBuf);
 
-            // Controllo escape letterali
+            // Literal escapes
             if (token == "#") BuckyParser::typeChar('#'); 
             else if (token == "~") BuckyParser::typeChar('~'); 
             else {
-                // Sostituiamo il + con lo spazio ma NON convertiamo in maiuscolo
-                // Così {ctrl+c} diventa "ctrl c" (evitando l'effetto Shift+C)
+                // Route to Ducky parser (e.g., {ctrl+c} -> ctrl c)
                 token.replace('+', ' '); 
                 BuckyParser::executeCommand(token); 
             }
@@ -572,7 +598,7 @@ bool handleLiveModeInput(char c) {
         return true;
     }
 
-    // --- TASTI RAPIDI CLASSICI ---
+    // --- SYSTEM HOTKEYS ---
     if (c == '~') { 
         liveMode = false;
         printDashboard();
@@ -589,7 +615,7 @@ bool handleLiveModeInput(char c) {
         return true;
     }
 
-    // --- MODALITÀ MOUSE ---
+    // --- MOUSE MODE ---
     if (liveMouseMode) {
         int stepF = BuckyConfig::MOUSE_STEP_FORWARD;
         int stepB = BuckyConfig::MOUSE_STEP_BACK; 
@@ -605,7 +631,7 @@ bool handleLiveModeInput(char c) {
         return true;
     } 
     
-    // --- TASTIERA DIRETTA ---
+    // --- DIRECT TYPING ---
     if (c == '\r') { /* ignore */ }
     else if (c == '\n') Keyboard.write(KEY_RETURN);
     else if (c == '\b' || c == 127) Keyboard.write(KEY_BACKSPACE);
@@ -623,6 +649,7 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
 
+    // Buffer pre-allocation to prevent heap fragmentation
     telnetCommandBuffer.reserve(BuckyConfig::MAX_COMMAND_LENGTH + 10);
     serialCommandBuffer.reserve(BuckyConfig::MAX_COMMAND_LENGTH + 10);
     
@@ -630,6 +657,7 @@ void setup() {
     loadConfiguration(); 
     pinMode(BuckyConfig::BTN_PIN, INPUT_PULLUP);
     
+    // Profile-based MAC Spoofing
     uint8_t custom_mac[6];
     esp_read_mac(custom_mac, ESP_MAC_WIFI_STA); 
     custom_mac[5] += currentProfile; 
@@ -643,6 +671,7 @@ void setup() {
     Mouse.begin();
 
     WiFi.mode(WIFI_AP);
+    WiFi.setTxPower(WIFI_POWER_11dBm); // Anti-Brownout transmission limit
     WiFi.softAP(BuckyConfig::WIFI_SSID, BuckyConfig::WIFI_PASSWORD, BuckyConfig::WIFI_CHANNEL, BuckyConfig::WIFI_HIDDEN_SSID); 
     
     telnetServer.begin();
@@ -654,14 +683,14 @@ void setup() {
 }
 
 void loop() {
-    // 1. GESTIONE CONNESSIONI IN INGRESSO
+    // 1. INCOMING CONNECTION MANAGEMENT
     if (telnetServer.hasClient()) {
         if (!client || !client.connected()) {
             if (client) client.stop();
             client = telnetServer.available();
             
-            // --- MODIFICA CRITICA HARDWARE ---
-            client.setNoDelay(true); // Forza l'ESP32 a sparare i dati Wi-Fi all'istante senza fare buffering interno!
+            client.setNoDelay(true); // Disable Nagle's Algorithm for instant TCP transmission
+            delay(50); // Allow TCP Window Negotiation to settle
             
             telnetCommandBuffer = ""; 
             lastTelnetActivity = millis();
@@ -672,13 +701,13 @@ void loop() {
         }
     }
 
-    // CRITICO ANTI-LEAK: Se il client ha chiuso la sessione o è caduta, killa subito il socket a livello hardware!
+    // Anti-leak socket purger
     if (client && !client.connected()) {
-        client.stop(); // Libera istantaneamente il descrittore fd di rete
+        client.stop(); 
         telnetCommandBuffer = "";
     }
 
-    // 2. GESTIONE FLUSSO DATI CLIENT TELNET
+    // 2. TELNET CLIENT DATA STREAM
     if (client && client.connected()) {
         if (millis() - lastTelnetActivity > BuckyConfig::TELNET_IDLE_TIMEOUT_MS) {
             printlnDual(String("\r\n") + C_RED + "[-] Idle Timeout. Disconnecting." + C_RESET);
@@ -717,7 +746,7 @@ void loop() {
         }
     }
 
-    // 3. GESTIONE SERIALE USB
+    // 3. SERIAL USB DATA STREAM
     while (Serial.available() > 0) {
         char c = Serial.read();
         if (handleLiveModeInput(c)) continue;
@@ -750,7 +779,7 @@ void loop() {
         delay(1);
     }
 
-    // 4. GESTIONE PULSANTE FISICO
+    // 4. PHYSICAL HARDWARE TRIGGER
     static bool lastHigh = true;
     bool high = (digitalRead(BuckyConfig::BTN_PIN) != BuckyConfig::BTN_ACTIVE_LEVEL);
     if (lastHigh && !high) {

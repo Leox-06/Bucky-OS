@@ -4,19 +4,20 @@
 #include <Arduino.h>
 
 namespace BuckyConfig {
-    // Wi-Fi and Telnet configuration
+
+    // --- NETWORK & CONNECTIVITY ---
     static const char WIFI_SSID[] = "bucky";
-    static const char WIFI_PASSWORD[] = "BuckyAdmin2026!";
+    static const char WIFI_PASSWORD[] = "BuckyAdmin2026!";     // Default WPA2 access point password
     static constexpr uint16_t TELNET_PORT = 23;
     static constexpr uint8_t WIFI_CHANNEL = 1;
     static constexpr bool WIFI_HIDDEN_SSID = false;
 
-    // Hardware pin definitions
-    static constexpr uint8_t BTN_PIN = 0;        // Default ESP32 BOOT button
+    // --- HARDWARE PINOUT ---
+    static constexpr uint8_t BTN_PIN = 0;                      // Default ESP32 BOOT button (Payload Trigger)
     static constexpr uint8_t BTN_ACTIVE_LEVEL = LOW;
 
-    // File system and persistent settings
-    static const char CONFIG_FILE_PATH[] = "/config";
+    // --- FILE SYSTEM & PERSISTENCE ---
+    static const char CONFIG_FILE_PATH[] = "/config";          // Unified registry file
     static const char DEFAULT_LAYOUT[] = "US";
     static const char DEFAULT_PROFILE_NAMES[3][16] = {
         "Bucky_1",
@@ -24,29 +25,20 @@ namespace BuckyConfig {
         "Bucky_3"
     };
 
-    // BLE state labels (for UI and configuration persistence)
-    static const char BLE_STATUS_CONNECTED[] = "[CONNECTED]";
-    static const char BLE_STATUS_WAITING[] = "[WAITING]";
+    // --- HID MOUSE CALIBRATION ---
+    // Asymmetric dithering for sub-pixel precision across different OS acceleration curves
+    static constexpr int8_t MOUSE_STEP_FORWARD = 15;           // +15 pixels when moving positive
+    static constexpr int8_t MOUSE_STEP_BACK = -14;             // -14 pixels when moving negative
 
-    // Mouse control (asymmetric dithering for sub-pixel precision)
-    static constexpr int8_t MOUSE_STEP_FORWARD = 15;   // +15 pixels when moving positive
-    static constexpr int8_t MOUSE_STEP_BACK = -14;     // -14 pixels when moving negative
-    // Net bias: +1 per cycle allows sub-pixel targeting via manual dithering
+    // --- MEMORY & BUFFER LIMITS ---
+    // Strict bounds to prevent heap fragmentation, buffer overflows, and DoS
+    static constexpr size_t MAX_COMMAND_LENGTH = 256;          // Max CLI command input size
+    static constexpr size_t MAX_LIVE_CMD_TOKEN = 32;           // Max {bracketed} token length in Live Mode
+    static constexpr size_t FILE_READ_BUFFER_SIZE = 128;       // Memory chunk size for safe script execution
 
-    // Input buffer limits (anti-DoS, prevent heap exhaustion)
-    static constexpr size_t MAX_COMMAND_LENGTH = 256;   // Max CLI command bytes
-    static constexpr size_t MAX_LIVE_CMD_TOKEN = 32;    // Max {bracketed} token length
-    static constexpr size_t FILE_READ_BUFFER_SIZE = 128;     // Chunk size for file operations
-
-    // Telnet & connection management
-    static constexpr uint16_t TELNET_IDLE_TIMEOUT_MS = 60000;  // 60 sec idle before drop
-    static constexpr uint8_t TELNET_WRITE_RETRIES = 3;         // Retry stalled writes
-    static constexpr uint16_t TELNET_WRITE_BUFFER_SIZE = 512;  // Max Telnet TX buffer
-
-    // UI & Dashboard configuration
-    static constexpr size_t STORAGE_BAR_WIDTH = 10;     // Progress bar width in chars
-    static constexpr uint16_t DASHBOARD_REFRESH_DELAY = 200;  // ms between redraws
-    static constexpr bool SHOW_LOGO_ON_STARTUP = true; // ASCII duck logo
+    // --- TIMEOUTS & UI ---
+    static constexpr uint16_t TELNET_IDLE_TIMEOUT_MS = 60000;  // Drop dead connections after 60 seconds
+    static constexpr size_t STORAGE_BAR_WIDTH = 10;            // Character width of the dashboard storage bar
 }
 
 #endif // BUCKY_CONFIG_H
